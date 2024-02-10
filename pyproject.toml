@@ -1,0 +1,40 @@
+[project]
+name = "matryoshka"
+version = "0.1.0"
+description = "Generator and solver for some matryoshka-like misc challenges."
+authors = [{ name = "Mix", email = "32300164+mnixry@users.noreply.github.com" }]
+dependencies = [
+    "pillow>=10.2.0",
+    "qrcode>=7.4.2",
+    "pyzipper>=0.3.6",
+    "numpy>=1.26.4",
+    "pyzbar>=0.1.9",
+    "rich>=13.7.0",
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "GPL-3.0" }
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm]
+distribution = true
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "ruff>=0.2.1",
+    "pwntools>=4.11.1",
+]
+
+[tool.ruff]
+select = [
+    # Pyflakes
+    "F",
+    # Pycodestyle
+    "E",
+    "W",
+    # isort
+    "I",
+]
