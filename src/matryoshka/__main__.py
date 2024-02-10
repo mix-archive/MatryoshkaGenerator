@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 from base64 import encodebytes
 from logging import basicConfig, getLogger
+from os import environ
 from socket import socket
 from socketserver import BaseRequestHandler, ThreadingTCPServer
 from uuid import uuid4
@@ -107,7 +108,10 @@ parser.add_argument(
 parser.add_argument(
     "--rounds", type=int, default=10, help="Number of rounds to produce temp flag"
 )
-parser.add_argument("--flag", type=str, required=True, help="Flag to be encoded")
+if flag := environ.get("FLAG"):
+    parser.add_argument("--flag", type=str, default=flag, help="Flag to be encoded")
+else:
+    parser.add_argument("--flag", type=str, required=True, help="Flag to be encoded")
 parser.add_argument("--log-level", type=str, default="INFO", help="Log level")
 
 
