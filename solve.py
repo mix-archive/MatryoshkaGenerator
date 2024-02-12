@@ -67,11 +67,15 @@ def decode(
     return None
 
 
+if len(sys.argv) != 3:
+    print(f"Usage: {sys.argv[0]} <host> <port>")
+    sys.exit(1)
+
 _, host, port = sys.argv
 
 s = p.remote(host, port)
-s.recvuntil(b"encode")
-s.sendline(b"encode")
+s.recvuntil(b"name")
+s.sendline(b"mix")
 
 while True:
     data = s.recvuntil(b"-----END MATRYOSHKA MESSAGE-----")
