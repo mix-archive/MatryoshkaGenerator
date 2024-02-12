@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from .base import DollsBase
+from .base import DollError, DollsBase
 
 
 class _SignificantByteDoll(DollsBase):
@@ -18,7 +18,7 @@ class _SignificantByteDoll(DollsBase):
     def maximum_capacity(self) -> int:
         image_copy = self._image_copy()
         return min(
-            image_copy.width * image_copy.height * len(image_copy.getbands())
+            (image_copy.width * image_copy.height * len(image_copy.getbands())) // 8
             - 4,  # minus 4 bytes for the length of the secret text
             1 << 32,
         )
@@ -39,35 +39,41 @@ class _SignificantByteDoll(DollsBase):
         )
 
         image_copy = self._image_copy()
-        for x, y in itertools.product(
-            range(image_copy.width), range(image_copy.height)
-        ):
-            pixel: list[int] = [*image_copy.getpixel((x, y))]
-            for i, data in enumerate(pixel):
-                bit = next(encode_text_generator, 0)
-                pixel[i] = self._hide(data, bit)
-            image_copy.putpixel((x, y), tuple(pixel))  # type: ignore
+        image_copy.putdata(
+            [
+                tuple(
+                    self._hide(pixel, next(encode_text_generator, 0)) for pixel in data
+                )
+                for data in image_copy.getdata()
+            ]  # type: ignore
+        )
 
         buf = io.BytesIO()
         image_copy.save(buf, format="PNG")
         return buf.getvalue()
 
     def decode(self, data: bytes):
-        secret_text_bits: list[int] = []
         buf = io.BytesIO(data)
         image = Image.open(buf)
 
-        for x, y in itertools.product(range(image.width), range(image.height)):
-            pixel: list[int] = [*image.getpixel((x, y))]
-            for i in pixel:
-                secret_text_bits.append(self._extract(i))
-        length, remainder = divmod(len(secret_text_bits), 8)
-        decoded_text = bytes(
-            int("".join(map(str, secret_text_bits[i : i + 8])), 2)
-            for i in range(0, length * 8, 8)
+        secret_text_bits = map(
+            self._extract, itertools.chain.from_iterable(image.getdata())
         )
-        decoded_length = int.from_bytes(decoded_text[:4], "big")
-        return decoded_text[4 : 4 + decoded_length]
+        length = int.from_bytes(
+            bytes(
+                int("".join(str(next(secret_text_bits)) for _ in range(8)), 2)
+                for _ in range(4)
+            ),
+            "big",
+        )
+
+        if length > self.maximum_capacity:
+            raise DollError("The length of the secret text is too long")
+
+        return bytes(
+            int("".join(str(next(secret_text_bits)) for _ in range(8)), 2)
+            for _ in range(length)
+        )
 
 
 class MostSignificantByteDoll(_SignificantByteDoll):
