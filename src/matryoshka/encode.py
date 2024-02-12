@@ -33,9 +33,11 @@ def encode(secret: bytes):
             swap_count += 1
             continue
         # if all layers accepted the size, do validation for decoding
+        logger.debug("chaining finished, starting validation")
         validate_secret = round_secret
         for round, layer in reversed([*enumerate(layers)]):
             try:
+                assert layer_results[round] == validate_secret
                 validate_secret = layer.decode(validate_secret)
             except Exception as e:
                 logger.warning("chain layer=%s, round=%s, failed=%s", layer, round, e)

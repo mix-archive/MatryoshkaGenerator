@@ -1,9 +1,11 @@
+import re
 from argparse import ArgumentParser
 from base64 import encodebytes
-from logging import basicConfig, getLogger
+from logging import getLogger
 from os import environ
 from socket import socket
 from socketserver import BaseRequestHandler, ThreadingTCPServer
+from typing import Optional
 from uuid import uuid4
 
 from rich.logging import RichHandler
@@ -19,12 +21,12 @@ banner = r"""
                        |___/                                             
 """  # noqa:W291
 
-basicConfig(level="INFO", handlers=[RichHandler()])
 logger = getLogger(__name__)
 
 
 class MatryoshkaHandler(BaseRequestHandler):
     request: socket
+    name: Optional[str] = None
 
     @property
     def flag(self) -> str:
@@ -51,31 +53,34 @@ class MatryoshkaHandler(BaseRequestHandler):
         return received
 
     def handle(self):
-        logger.info("Connection from %s", self.client_address)
+        logger.info("Connection from %s:%s", *self.client_address)
 
         self.send(banner)
         self.send("Welcome to the Matryoshka server!")
-        self.send('Please send "encode" to receive the encoded message')
-        if self.request.recv(1024).strip() != b"encode":
+        self.send("Please send your name to receive the flag")
+        if (name := self.recv(timeout=10)) is None:
             self.send("Invalid input")
             return
+        self.name = name = re.sub(r"[^a-zA-Z0-9]", "", name.decode(errors="replace"))
+        logger.info("Client (%s:%s) identified as %r", *self.client_address, name)
+        self.send(f"Hello {name}!")
 
         for round in range(self.rounds):
             self.send(f"Round {round + 1}/{self.rounds}")
             self.send("Please wait for the message to be prepared")
-            temp_flag = "temp_flag{%s}" % uuid4()
+            temp_flag = "%s_flag{%s}" % (name, uuid4())
             try:
                 encoded = encode(temp_flag.encode())
             except Exception:
-                logger.exception("encoding failed for client %s", self.client_address)
+                logger.exception("encoding failed for user %r", name)
                 self.send("Internal failure occurred, please report to author")
                 return
             if encoded is None:
-                logger.error("encoding failed for client %s", self.client_address)
-                self.send("Internal failure occurred, please report to author")
+                logger.error("encoding failed for client %r", name)
+                self.send("Internal encoding result invalid, please report to author")
                 return
             self.send("-----BEGIN MATRYOSHKA MESSAGE-----")
-            self.send(encodebytes(encoded).decode())
+            self.send(encodebytes(encoded).decode(), newline=False)
             self.send("-----END MATRYOSHKA MESSAGE-----")
 
             self.send('Flag format is "temp_flag{uuid4()}"')
@@ -88,44 +93,66 @@ class MatryoshkaHandler(BaseRequestHandler):
                 self.send("Invalid flag")
                 return
             logger.info(
-                "user %s passed round %s/%s",
-                self.client_address,
+                "user %r passed round %s/%s",
+                name,
                 round + 1,
                 self.rounds,
             )
         self.send(f"Congratulations! Here is your flag: {self.flag}")
 
     def finish(self) -> None:
-        logger.info("Connection from %s closed", self.client_address)
+        logger.info(
+            "Connection from %r (%s:%s) closed", self.name, *self.client_address
+        )
         return super().finish()
 
 
 parser = ArgumentParser()
-parser.add_argument("--port", type=int, default=0, help="Port to bind the server to")
 parser.add_argument(
-    "--host", type=str, default="0.0.0.0", help="Server listening address"
+    "-p", "--port", type=int, default=1337, help="Port to bind the server to"
 )
 parser.add_argument(
-    "--rounds", type=int, default=10, help="Number of rounds to produce temp flag"
+    "-l", "--host", type=str, default="0.0.0.0", help="Server listening address"
+)
+parser.add_argument(
+    "-r", "--rounds", type=int, default=10, help="Number of rounds to produce temp flag"
 )
 if flag := environ.get("FLAG"):
-    parser.add_argument("--flag", type=str, default=flag, help="Flag to be encoded")
+    parser.add_argument(
+        "-f", "--flag", type=str, default=flag, help="Flag to be encoded"
+    )
 else:
-    parser.add_argument("--flag", type=str, required=True, help="Flag to be encoded")
-parser.add_argument("--log-level", type=str, default="INFO", help="Log level")
+    parser.add_argument(
+        "-f", "--flag", type=str, required=True, help="Flag to be encoded"
+    )
+parser.add_argument("-L", "--log-level", type=str, default="INFO", help="Log level")
 
 
 def main():
     args = parser.parse_args()
-    basicConfig(level=args.log_level, handlers=[RichHandler()])
-    listen_address = (args.host, args.port)
-    with ThreadingTCPServer(listen_address, MatryoshkaHandler) as server:
+
+    root_logger = getLogger()
+    root_logger.setLevel(args.log_level)
+    root_logger.handlers.clear()
+    root_logger.addHandler(RichHandler())
+
+    logger.debug("Starting server with args %s", args)
+    with ThreadingTCPServer(
+        (args.host, args.port), MatryoshkaHandler, bind_and_activate=False
+    ) as server:
         logger.info("Server started at %s:%s", *server.server_address)
         server.allow_reuse_address = True
         server.allow_reuse_port = True
         setattr(server, "rounds", args.rounds)
         setattr(server, "flag", args.flag)
-        server.serve_forever()
+        try:
+            server.server_bind()
+            server.server_activate()
+            server.serve_forever()
+        except KeyboardInterrupt:
+            logger.info("Server stopped")
+        except Exception as e:
+            logger.exception("Failed to start server, %s", e)
     return
 
 
