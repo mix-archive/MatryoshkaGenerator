@@ -1,8 +1,13 @@
 import io
+import itertools
 import random
+import string
 import time
+from collections import deque
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from logging import getLogger
-from pathlib import Path
+from typing import ClassVar
 
 import pyzipper
 
@@ -12,20 +17,21 @@ logger = getLogger(__name__)
 
 
 class WeakZipDoll(DollsBase):
-    def __init__(self, dictionary: Path = Path(__file__).parent / "weak_zip_dict.txt"):
-        self.dictionary = [
-            stripped
-            for line in dictionary.read_text().splitlines()
-            if (stripped := line.strip())
-        ]
+    cache_size: ClassVar[int] = 100
+    historical_password_cache: ClassVar[deque[str]] = deque(maxlen=cache_size)
+
+    def __init__(self, charset: str = string.digits, length: int = 5):
+        super().__init__()
+        self.charset = charset
+        self.length = length
 
     @property
     def maximum_capacity(self) -> int:
         return 0
 
     def encode(self, secret_text: bytes):
-        password = random.choice(self.dictionary)
-        filename = random.randbytes(5).hex() + ".txt"
+        password = "".join(random.choices(self.charset, k=self.length))
+        filename = random.randbytes(self.length).hex() + "brute_plz.txt"
 
         zip_data = io.BytesIO()
         with pyzipper.AESZipFile(
@@ -37,17 +43,38 @@ class WeakZipDoll(DollsBase):
             zip_ref.setpassword(password.encode())
             zip_ref.writestr(filename, secret_text)
 
+        type(self).historical_password_cache.append(password)
         return zip_data.getvalue()
 
+    @staticmethod
+    def _brute_force_worker(data: bytes, password: str):
+        buf = io.BytesIO(data)
+        try:
+            with pyzipper.AESZipFile(buf) as zip_ref:
+                zip_ref.setpassword(password.encode())
+                secret_content = zip_ref.read(zip_ref.namelist()[0])
+                return password, secret_content
+        except RuntimeError:
+            return password, None
+        except Exception as e:
+            logger.debug("Brute force failed with password=%s, error=%s", password, e)
+            return password, None
+
     def _brute_force(self, data: bytes) -> tuple[str, bytes]:
-        for password in self.dictionary:
-            try:
-                with pyzipper.AESZipFile(io.BytesIO(data)) as zip_ref:
-                    zip_ref.setpassword(password.encode())
-                    secret_content = zip_ref.read(zip_ref.namelist()[0])
-                    return password, secret_content
-            except RuntimeError:
-                pass
+        if type(self).historical_password_cache:
+            for password in type(self).historical_password_cache:
+                password, content = self._brute_force_worker(data, password)
+                if content:
+                    return password, content
+            logger.warning("Historical password cache not hit")
+        with ProcessPoolExecutor() as executor:
+            for password, content in executor.map(
+                partial(self._brute_force_worker, data),
+                map("".join, itertools.product(self.charset, repeat=self.length)),
+                chunksize=100,
+            ):
+                if content:
+                    return password, content
         raise DollError("Password not found")
 
     def decode(self, data: bytes):
