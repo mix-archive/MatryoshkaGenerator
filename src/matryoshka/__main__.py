@@ -115,7 +115,7 @@ parser.add_argument(
     "-l", "--host", type=str, default="0.0.0.0", help="Server listening address"
 )
 parser.add_argument(
-    "-r", "--rounds", type=int, default=10, help="Number of rounds to produce temp flag"
+    "-r", "--rounds", type=int, default=25, help="Number of rounds to produce temp flag"
 )
 if flag := environ.get("FLAG"):
     parser.add_argument(
