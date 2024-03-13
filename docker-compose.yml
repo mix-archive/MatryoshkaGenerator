@@ -2,6 +2,6 @@ services:
   app:
     build: .
     ports:
-      - "1337:1337"
+      - "${PORT}:1337"
     environment:
       - FLAG=${FLAG}
