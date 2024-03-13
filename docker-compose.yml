@@ -3,5 +3,6 @@ services:
     build: .
     ports:
       - "${PORT}:1337"
+    restart: unless-stopped
     environment:
       - FLAG=${FLAG}
