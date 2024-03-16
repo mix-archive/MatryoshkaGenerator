@@ -62,6 +62,9 @@ class MatryoshkaHandler(BaseRequestHandler):
             self.send("Invalid input")
             return
         self.name = name = re.sub(r"[^a-zA-Z0-9]", "", name.decode(errors="replace"))
+        if not name:
+            self.send("Invalid name")
+            return
         logger.info("Client (%s:%s) identified as %r", *self.client_address, name)
         self.send(f"Hello {name}!")
 
@@ -83,7 +86,7 @@ class MatryoshkaHandler(BaseRequestHandler):
             self.send(encodebytes(encoded).decode(), newline=False)
             self.send("-----END MATRYOSHKA MESSAGE-----")
 
-            self.send('Flag format is "temp_flag{uuid4()}"')
+            self.send('Flag format is "%s_flag{uuid4()}"' % name)
             self.send("Please send the flag in 60 seconds timeout")
             received = self.recv(timeout=60)
             if received is None:
