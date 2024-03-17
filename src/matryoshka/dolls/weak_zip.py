@@ -2,6 +2,7 @@ import io
 import itertools
 import random
 import string
+import threading
 import time
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
@@ -18,7 +19,9 @@ logger = getLogger(__name__)
 
 class WeakZipDoll(DollsBase):
     cache_size: ClassVar[int] = 100
+
     historical_password_cache: ClassVar[deque[str]] = deque(maxlen=cache_size)
+    cache_mutation_lock = threading.Lock()
 
     def __init__(self, charset: str = string.digits, length: int = 5):
         super().__init__()
@@ -43,7 +46,8 @@ class WeakZipDoll(DollsBase):
             zip_ref.setpassword(password.encode())
             zip_ref.writestr(filename, secret_text)
 
-        type(self).historical_password_cache.append(password)
+        with type(self).cache_mutation_lock:
+            type(self).historical_password_cache.append(password)
         return zip_data.getvalue()
 
     @staticmethod
@@ -62,7 +66,9 @@ class WeakZipDoll(DollsBase):
 
     def _brute_force(self, data: bytes) -> tuple[str, bytes]:
         if type(self).historical_password_cache:
-            for password in type(self).historical_password_cache:
+            with type(self).cache_mutation_lock:
+                historical_password = [*type(self).historical_password_cache]
+            for password in historical_password:
                 password, content = self._brute_force_worker(data, password)
                 if content:
                     return password, content
